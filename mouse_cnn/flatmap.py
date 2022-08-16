@@ -13,7 +13,7 @@ class FlatMap:
         """
         A crude flat map of mouse visual cortex.
         """
-        cache = VoxelModelCache(manifest_file='connectivity/voxel_model_manifest.json')
+        cache = VoxelModelCache(manifest_file='/allen/programs/mindscope/workgroups/tiny-blue-dot/mouse_connectivity_models_2020/data/meta/new_manifest.json')
         source_mask = cache.get_source_mask()
         source_keys = source_mask.get_key(structure_ids=[669]) #669: visual areas; 913: visual areas L4 doesn't work
         self.source_key_volume = source_mask.map_masked_to_annotation(source_keys)

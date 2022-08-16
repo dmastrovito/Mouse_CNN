@@ -30,6 +30,6 @@ if USE_WANDB:
  
     if WANDB_DRY:
         os.environ['WANDB_MODE'] = 'dryrun'
-
-WANDB_DIR = os.environ['WANDB_DIR']
-IMAGENET_DIR = os.environ['IMAGENET_DIR']
+        WANDB_DIR = os.environ['WANDB_DIR']
+        
+IMAGENET_DIR = "/scratch/fast/ImageNet/ILSVRC/Data/CLS-LOC/"#os.environ['IMAGENET_DIR']

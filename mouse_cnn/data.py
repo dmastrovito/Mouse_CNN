@@ -3,6 +3,8 @@ import os
 import csv
 import numpy as np
 from scipy.optimize import curve_fit
+from config import INPUT_SIZE
+import torch 
 
 """
 Interface to mouse data sources.
@@ -149,17 +151,33 @@ class Data:
 
         return cat[source_layer][target_layer] / cat['4']['4'] * l4_to_l4
 
-    def get_visual_field_shape(self, area):
+    def get_retinotopic_extent(self, area):
         """
         :param area: visual area name
         :return: (height, width) of visual field for that area
         """
-        # We return a constant for simplicity. This is based on the range of the scale
+        #['LGNd', 'VISp',  'VISpl', 'VISl', 'VISal', 'VISrl', 'VISli','VISpor4']
+        
+        mask_indices = {'LGNd':None, 'VISp':None,'VISpm':[[5/11,9/11],[4/18,1]],'VISl':[[1/11,6/11],[0,8/18]],\
+                         'VISal':[[5/11,9/11],[3/18,10/18]],'VISrl':[[6/11,1],[1/18,11/18]],'VISli': [[1/11,5/11],[6/18,8/18]],\
+                             'VISpor':[[7/11,8/11],[6/18,10/18]],'VISpl':[[0,5/11],[2/18,1]]}
+       
+        if mask_indices[area] is not None:
+            mask = np.zeros((INPUT_SIZE[1],INPUT_SIZE[2]),dtype = 'uint8')
+            indices = np.round(np.array(mask_indices[area] )* INPUT_SIZE[1:]).astype('uint8')
+            idxs = [np.arange(indices[0][0],indices[0][1]),np.arange(indices[1][0],indices[1][1])]
+            mask[np.ix_(idxs[0],idxs[1])] = 1
+            extent = len(np.where(mask == 1)[0])/len(mask.flatten())
+        else:
+            mask = np.ones((INPUT_SIZE[1],INPUT_SIZE[2]),dtype = 'uint8')
+            extent = 1
+        #This is based on the range of the scale
         # bars in Figure 9C,D of ﻿J. Zhuang et al., “An extended retinotopic map of mouse cortex,”
         # Elife, p. e18372, 2017. In fact different areas have different visual field shapes and
-        # offsets, but we defer this aspect to future models.
-        return (55, 90)
-
+        # offsets, but we defer this aspect to fu[]
+        #return (55, 90)
+        return extent, mask
+        
 
 # class Ero2018:
 #     """

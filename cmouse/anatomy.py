@@ -9,7 +9,7 @@ from mouse_cnn.architecture import *
 # from config import get_output_shrinkage
 
 class AnatomicalLayer:
-    def __init__(self, area, depth, num):
+    def __init__(self, area, depth, num,):
         self.area = area
         self.depth = depth
         self.num = num
@@ -59,63 +59,76 @@ class AnatomicalNet:
             return
         self.projections.append(projection)
 
-    def make_graph(self):
-        G = nx.DiGraph()
+    def make_graph(self,recurrent = False):
+        if recurrent:
+            G = nx.MultiDiGraph()
+        else:
+            G = nx.DiGraph()
         edges = [(p.pre, p.post) for p in self.projections]
         for edge in edges:
             G.add_edge(edge[0], edge[1])
         node_label_dict = { layer:layer.area + layer.depth for layer in G.nodes()}
         return G, node_label_dict
 
-    def draw_graph(self, node_size=1600, node_color='yellow', edge_color='red'):
-        G, node_label_dict = self.make_graph()
+    def draw_graph(self, node_size=1600, node_color='yellow', edge_color='red',recurrent = False):
+        G, node_label_dict = self.make_graph(recurrent = recurrent)
         plt.figure(figsize=(10,10))
         pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
         nx.draw(G, pos, node_size=node_size, node_color=node_color, edge_color=edge_color)
         nx.draw_networkx_labels(G, pos, node_label_dict)
-        plt.show()
+        if recurrent:
+            plt.savefig("mousenet_wrecurrence.png",dpi = 300)
+        else:
+            plt.savefig("mousenet.png",dpi = 300)
 
-def gen_anatomy(data, input_depths = ['4'],
-            output_depths = ['4', '2/3', '5'],
-            laminar_connections = [('4', '2/3'), ('2/3', '5')]):
+def gen_anatomy(architecture,recurrent = False):
+    input_depths = ['4']
+    output_depths = ['4', '2/3', '5']
+    if recurrent:
+        laminar_connections = [('4', '2/3'),('2/3','4'),('5','2/3'), ('2/3', '5')]
+    else:
+        laminar_connections = [('4', '2/3'), ('2/3', '5')]
+    
     """
     generate anatomy structure from data class
     """
     anet = AnatomicalNet()
-    areas = data.get_areas()
-    depths = data.get_layers()
+    areas = architecture.get_areas()
+    depths = architecture.get_layers()
     output_map = {} # collect output layers for each hierarchy
-
+    
     # create LGNd
     hierarchy = 0
-    layer0 = AnatomicalLayer('LGNd', '', data.get_num_neurons('LGNd', None))
+    layer0 = AnatomicalLayer('LGNd', '', architecture.get_num_neurons('LGNd', None))
     anet.add_layer(layer0)
     output_map[0] = [layer0]
-
+    
     for hierarchy in [1,2,3]:
         output_map[hierarchy] = []
         for area in areas:
-            if data.get_hierarchical_level(area) == hierarchy:
+            if architecture.get_hierarchical_level(area) == hierarchy:
                 # create anatomical module for one area
                 # add layers
                 area_layers = {}
                 for depth in depths:
-                    layer = AnatomicalLayer(area, depth, data.get_num_neurons(area, depth))
+                    layer = AnatomicalLayer(area, depth, architecture.get_num_neurons(area, depth))
                     area_layers[depth] = layer
                     anet.add_layer(layer)
                     if depth in output_depths:
                         output_map[hierarchy].append(layer)
-
                 # add LaminarProjection
                 for source, target in laminar_connections:
                     anet.add_projection(Projection(area_layers[source], area_layers[target]))
-
                 # add AreaProjection
                 for depth in depths:
                     if depth in input_depths:
                         for l in output_map[hierarchy-1]:
                             anet.add_projection(Projection(l, area_layers[depth]))
+                            if hierarchy-1 > 0 and recurrent:
+                                 anet.add_projection(Projection(area_layers[depth],l))                              
                         if hierarchy == 3:
                             for l in output_map[hierarchy-2]:
                                 anet.add_projection(Projection(l, area_layers[depth]))
+                                if recurrent:
+                                    anet.add_projection(Projection( area_layers[depth],l))
     return anet

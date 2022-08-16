@@ -7,7 +7,7 @@ import shutil
 import time
 import warnings
 import torch
-import wandb
+#import wandb
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -19,7 +19,7 @@ import torchvision
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-
+import network
 from anatomy import *
 from network import *
 from config import *
@@ -87,6 +87,8 @@ FIXMASK = args.fixmask
 RUN_NAME_MASK = '%s_mask_%s'%(RUN_NAME, MASK)
 RUN_NAME_MASK_SEED = '%s_seed_%s'%(RUN_NAME_MASK, SEED)
 best_acc1 = 0
+recurrent = True
+
 
 def main():
 
@@ -157,12 +159,14 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
 
     if NET == 1:
-        net_name = 'network_complete_updated_number(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
-        architecture = Architecture(data_folder=DATA_DIR)
-        net = gen_network(net_name, architecture)
+        net_name = '../network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl'
+        net = network.load_network_from_pickle(net_name)
+        #net_name = 'network_complete_updated_number(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
+        #architecture = Architecture(data_folder=DATA_DIR)
+        #net = gen_network(net_name, architecture)
         if FIXMASK != 0:
             np.random.seed(FIXMASK)
-        model = MouseNetCompletePool(net, mask=MASK)
+        model = MouseNetCompletePool(net, mask=MASK, recurrent = recurrent)
 
     # elif NET == 2:
     #     net_name = 'network_simple_visl_(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
@@ -250,39 +254,46 @@ def main_worker(gpu, ngpus_per_node, args):
     cudnn.benchmark = True
 
     # Data loading code
+    
     traindir = os.path.join(args.data, 'train')
     valdir = os.path.join(args.data, 'val')
+    print(traindir, valdir)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomResizedCrop(64,  scale=(SCALE, 1.0)),
+    transform = transforms.Compose([
+            transforms.RandomResizedCrop(INPUT_SIZE[1],  scale=(SCALE, 1.0)),
             # transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             # transforms.Resize(INPUT_SIZE[1:]),
             transforms.ToTensor(),
             normalize,
-        ]))
+        ])
+    
+    train_dataset = datasets.ImageFolder(traindir,transform)
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
         train_sampler = None
 
+    print(train_sampler)
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
+    #DM is not sure why the transform for validation should not match train
+    '''
+    transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.Resize(INPUT_SIZE[1:]),
             transforms.ToTensor(),
             normalize,
-        ])),
+        ])
+    '''
+    val_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(valdir,transform ),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
 
