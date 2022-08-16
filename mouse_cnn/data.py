@@ -151,6 +151,22 @@ class Data:
 
         return cat[source_layer][target_layer] / cat['4']['4'] * l4_to_l4
 
+
+    def get_rough_retinotopy(self, area):
+        mask_indices = {'LGNd':None, 'VISp':None,'VISl':[[0,.5],[0,.5]],\
+                         'VISal':[[0.33,0.66],[0.33,0.66]],'VISrl':[[.5,1],[0,1]],'VISli': [[0,.5],[0.33,.66]],\
+                             'VISpor':[[.66,1],[0,1]],'VISpl':[[0,.5],[0,1]]}
+       
+        if mask_indices[area] is not None:
+            mask = np.zeros((INPUT_SIZE[1],INPUT_SIZE[2]),dtype = 'uint8')
+            indices = np.round(np.array(mask_indices[area] )* INPUT_SIZE[1:]).astype('uint8')
+            idxs = [np.arange(indices[0][0],indices[0][1]),np.arange(indices[1][0],indices[1][1])]
+            mask[np.ix_(idxs[0],idxs[1])] = 1
+            extent = len(np.where(mask == 1)[0])/len(mask.flatten())
+        else:
+            mask = np.ones((INPUT_SIZE[1],INPUT_SIZE[2]),dtype = 'uint8')
+            extent = 1
+
     def get_retinotopic_extent(self, area):
         """
         :param area: visual area name
