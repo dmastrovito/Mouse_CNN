@@ -111,9 +111,9 @@ class MouseNetCompletePool(nn.Module):
             ## plotting Gaussian mask
             #plt.title('%s_%s_%sx%s'%(e[0].replace('/',''), e[1].replace('/',''), params.kernel_size, params.kernel_size))
             #plt.savefig('%s_%s'%(e[0].replace('/',''), e[1].replace('/','')))
-            if layer.target_name not in self.BNs:
-                self.BNs[layer.target_name] = nn.BatchNorm2d(params.out_channels)
-
+            #if layer.target_name not in self.BNs:
+            #    self.BNs[layer.target_name] = nn.BatchNorm2d(params.out_channels)
+                
         # calculate total size output to classifier
         total_size=0
         
@@ -144,15 +144,17 @@ class MouseNetCompletePool(nn.Module):
         )
                      
     
-    def get_img_feature_recurrent_slow(self, x, area_list, flatten=True,n_steps = None,return_calc_graph = False):
+    def get_img_feature_recurrent(self, x, area_list, flatten=True,n_steps = None,return_calc_graph = False):
         nt = self.network.hierarchy_depth
         calc_graph = {}
         #size_mismatch = []
         area = 'LGNd'
         layer = self.network.find_conv_source_target('input', area)
         layer_name = layer.source_name + layer.target_name
-        calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](x)))
+        #calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](x)))
+        calc_graph[area] = torch.nn.Sigmoid()(self.Convs[layer_name](x))
         source_areas = ['LGNd']
+        input_areas = ['LGNd']
         #edges_computed = []
         
         finished = False
@@ -162,15 +164,17 @@ class MouseNetCompletePool(nn.Module):
         
         
         while len(source_areas) >0 and not finished:
-            #print(source_areas)
-            if len(source_areas) == len(self.network.layers) - 2:
-                if n_steps is not None:
-                    if nt == n_steps:
-                        finished = True
-                else:
-                    finished = True
+            #print(nt)
             target_layers = [layer for layer in self.network.layers if layer.source_name in source_areas]
             targets = [layer.target_name for layer in target_layers]
+            targets = list(set(targets))
+            if len(target_layers) == len(self.network.layers) - 1:
+               if n_steps is not None:
+                   if nt == n_steps:
+                       finished = True
+               else:
+                   finished = True
+            
             for layer in target_layers:
                 layer_name = layer.source_name + layer.target_name
                 convolution = self.Convs[layer_name](calc_graph[layer.source_name])
@@ -183,18 +187,24 @@ class MouseNetCompletePool(nn.Module):
                 #    calc_graph[layer.target_name] = calc_graph[layer.target_name] + self.Convs[layer_name](pad(calc_graph[layer.source_name]))
                     
                 else:
-                      calc_graph[layer.target_name] = calc_graph[layer.target_name] + convolution
-                      ncalc += 1
-                      #ec.append(layer_name)
-                      
+                      if self.areas.index(layer.target_name) > self.areas.index(layer.source_name):
+                          calc_graph[layer.target_name] = calc_graph[layer.target_name] + convolution
+                          ncalc += 1
+                          #ec.append(layer_name)
+                      else:
+                          calc_graph[layer.target_name] =calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution)
+                          ncalc += 1
+            
             for target in targets:
-                calc_graph[target] = torch.nn.ReLU(inplace=True)(self.BNs[target](calc_graph[target]))
-                
+                calc_graph[target] = torch.nn.Sigmoid()(calc_graph[target])
+
             #target_layers = [layer for layer in self.network.layers if layer.source_name in targets]
-            source_areas = targets
+            source_areas = input_areas.copy()
+            source_areas.extend(targets)
             #edges_computed.append(ec)
             #ec = []
             nt += 1
+           
 
         #print(ncalc,nt)
         if len(area_list) == 1:
@@ -375,7 +385,7 @@ class MouseNetCompletePool(nn.Module):
     
     def forward(self, x,n_steps=None,return_calc_graph = False):
         if self.network.recurrent:
-            x,calc_graph = self.get_img_feature_recurrent_slow(x,OUTPUT_AREAS,n_steps=n_steps,return_calc_graph = return_calc_graph)
+            x,calc_graph = self.get_img_feature_recurrent(x,OUTPUT_AREAS,n_steps=n_steps,return_calc_graph = return_calc_graph)
         else:
             x,calc_graph = self.get_img_feature(x, OUTPUT_AREAS,return_calc_graph = return_calc_graph)
             

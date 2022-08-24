@@ -20,7 +20,7 @@ basedir = "/allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN
 sys.path.append(os.path.join(basedir,'cmouse'))
 
 
-#file = os.path.join(basedir,'cmouse/exps/cifar/myresults',"mask_3_cifar10_LR_0.001_M_0.5_mousenet/42_80.34.pt")
+#file = os.path.join(basedir,'cmouse/exps/cifar/myresults',"mask_3_cifar10_LR_0.001_M_0.5_mousenet/42_83.62.pt")
 file = os.path.join(basedir,'cmouse/exps/cifar/myresults/recurrent/sampled',"mask_3_cifar10_LR_0.001_M_0.5_mousenet/42_10.0.pt")
 
 
@@ -62,7 +62,7 @@ for epoch in range(epoch+1, EPOCHS + 1):  # loop over the dataset multiple times
                           nsteps = nsteps,step_range = step_range)
     debug_memory()
     best_acc = test(config, mousenet, device, test_loader, epoch,best_acc = best_acc, training_loss=training_loss, validation_loss = validation_loss,\
-                    recurrent=recurrentt,nsteps = nsteps,step_range = step_range)  
+                    recurrent=recurrent,nsteps = nsteps,step_range = step_range)  
     
 
 print('Finished Training')

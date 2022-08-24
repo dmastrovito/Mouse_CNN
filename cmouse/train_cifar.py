@@ -22,7 +22,7 @@ parser.add_argument('--mask', default = 3, type=int, help='if use Gaussian mask'
 args = parser.parse_args()
 SEED = args.seed
 MASK = args.mask
-RUN_NAME_MASK = 'mask_%s_%s'%(MASK, RUN_NAME)
+RUN_NAME_MASK = 'sampled_inference_time_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
 RUN_NAME_MASK_SEED = '%s_seed_%s'%(RUN_NAME_MASK, SEED)
 
 
@@ -43,20 +43,40 @@ def train(args, model, device, train_loader, optimizer, epoch,training_loss = No
         # Load the input features and labels from the training dataset
         data, target = data.to(device), target.to(device)
         # Reset the gradients to 0 for all learnable weight parameters
+        #debug_memory()
         optimizer.zero_grad()
         # Forward pass: Pass image data from training dataset, make predictions about class image belongs to (0-9 in this case)
         if recurrent and nsteps == 'sampled':
             n_steps = rng.integers(low=step_range[0], high=step_range[1], size=1)[0]    
+            #print(n_steps)
         else:
             n_steps = None
         output,_ = model(data,n_steps = n_steps)
         # Define our loss function, and compute the loss
         loss = F.cross_entropy(output, target)
+        #print(loss)
         # Backward pass: compute the gradients of the loss w.r.t. the model's parameters
         loss.backward()
-        # Update the neural network weights
         optimizer.step()
-        training_loss.append(loss)
+        
+        '''
+        named_params = list(model.named_parameters())
+        zerod = []
+        with torch.no_grad():
+            for p,param in enumerate(named_params):
+                if any(x in param[0] for x in ('weight','bias')):
+                    layername = [name for name in model.areas if name in param[0]]
+                    if len(layername) > 1:
+                        idx = [param[0].find(name) for name in layername]
+                        order = sorted(range(len(idx)), key=lambda k: idx[k])
+                        source_name =  layername[order[0]]
+                        target_name = layername[order[1]]
+                        if model.areas.index(source_name) > model.areas.index(target_name):
+                            param[1].data = torch.zeros(param[1].shape,device=device)
+        '''
+        # Update the neural network weights
+        
+        training_loss.append(loss.clone().detach().cpu().numpy())
      
         _, predicted = output.max(1)
         total += target.size(0)
@@ -96,7 +116,8 @@ def test(args, model, device, test_loader, epoch,best_acc =0, training_loss = No
             output,_ = model(data,n_steps = n_steps)
                     
             # Compute the loss sum up batch loss
-            test_loss += F.nll_loss(output, target, reduction='sum').item()
+            #test_loss += F.nll_loss(output, target, reduction='sum').item()
+            test_loss = F.cross_entropy(output, target)
             validation_loss.append(test_loss)
             # Get the index of the max log-probability
             pred = output.max(1, keepdim=True)[1]
@@ -109,7 +130,9 @@ def test(args, model, device, test_loader, epoch,best_acc =0, training_loss = No
             torch.cuda.empty_cache()
 
     # Save checkpoint.
+    
     acc = 100. * correct / len(test_loader.dataset)
+    print(acc, "best_acc",best_acc)
     if epoch == 0 or acc > best_acc:
         save_dir = RESULT_DIR + '/' + RUN_NAME_MASK +'/'
         print('Saving to '+save_dir+"...")
@@ -205,10 +228,10 @@ def set_save_dir(recurrent = False,nsteps = None):
 def main():
     
     recurrent = True
-    nsteps = 'baseline'
-    #nsteps = 'sampled'
-    #step_range = (30,40)
-    step_range = None
+    #nsteps = 'baseline'
+    #step_range = None
+    nsteps = 'sampled'
+    step_range = (30,40)
     set_save_dir(recurrent,nsteps = nsteps)
     
 
@@ -228,12 +251,15 @@ def main():
     torch.backends.cudnn.deterministic = True
     
     # get the mouse network
+    
     '''
     net_name = 'network_(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
     architecture = Architecture(data_folder=DATA_DIR)
     net = gen_network(net_name, architecture)
     mousenet = MouseNetCompletePool(net, mask=MASK)
     '''
+    
+    
     if recurrent:
         net = network.load_network_from_pickle('../network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl')
     else:
@@ -243,13 +269,13 @@ def main():
     mousenet.to(device)    
     optimizer = optim.SGD(mousenet.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=5e-4)
     config = None
-    best_acc = test(config, mousenet, device, test_loader, 0,best_acc = best_acc, training_loss = training_loss, \
-                    validation_loss = validation_loss,recurrent = recurrent,nsteps = nsteps,step_range = step_range)  
-    debug_memory()
+    #best_acc = test(config, mousenet, device, test_loader, 0,best_acc = best_acc, training_loss = training_loss, \
+    #                validation_loss = validation_loss,recurrent = recurrent,nsteps = nsteps,step_range = step_range)  
+    #debug_memory()
     for epoch in range(1, EPOCHS + 1):  # loop over the dataset multiple times
-        adjust_learning_rate(config, optimizer, epoch)
+        #adjust_learning_rate(config, optimizer, epoch)
         print(epoch)  
-        validation_lpss = train(config, mousenet, device, train_loader, optimizer, epoch, training_loss = training_loss,\
+        training_lpss = train(config, mousenet, device, train_loader, optimizer, epoch, training_loss = training_loss,\
                                 recurrent = recurrent,nsteps = nsteps,step_range = step_range)
         debug_memory()
         best_acc = test(config, mousenet, device, test_loader, epoch,best_acc = best_acc, training_loss = training_loss, \
