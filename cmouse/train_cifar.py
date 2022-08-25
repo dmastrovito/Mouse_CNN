@@ -22,7 +22,8 @@ parser.add_argument('--mask', default = 3, type=int, help='if use Gaussian mask'
 args = parser.parse_args()
 SEED = args.seed
 MASK = args.mask
-RUN_NAME_MASK = 'sampled_inference_time_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
+RUN_NAME_MASK = 'sigmoid_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
+#RUN_NAME_MASK = 'sampled_inference_time_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
 RUN_NAME_MASK_SEED = '%s_seed_%s'%(RUN_NAME_MASK, SEED)
 
 
@@ -228,10 +229,10 @@ def set_save_dir(recurrent = False,nsteps = None):
 def main():
     
     recurrent = True
-    #nsteps = 'baseline'
-    #step_range = None
-    nsteps = 'sampled'
-    step_range = (30,40)
+    nsteps = 'baseline'
+    step_range = None
+    #nsteps = 'sampled'
+    #step_range = (30,40)
     set_save_dir(recurrent,nsteps = nsteps)
     
 

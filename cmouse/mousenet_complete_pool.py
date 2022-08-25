@@ -111,8 +111,8 @@ class MouseNetCompletePool(nn.Module):
             ## plotting Gaussian mask
             #plt.title('%s_%s_%sx%s'%(e[0].replace('/',''), e[1].replace('/',''), params.kernel_size, params.kernel_size))
             #plt.savefig('%s_%s'%(e[0].replace('/',''), e[1].replace('/','')))
-            #if layer.target_name not in self.BNs:
-            #    self.BNs[layer.target_name] = nn.BatchNorm2d(params.out_channels)
+            if layer.target_name not in self.BNs:
+                self.BNs[layer.target_name] = nn.BatchNorm2d(params.out_channels)
                 
         # calculate total size output to classifier
         total_size=0
@@ -194,10 +194,12 @@ class MouseNetCompletePool(nn.Module):
                       else:
                           calc_graph[layer.target_name] =calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution)
                           ncalc += 1
+            if finished:
+                calc_graph[area] = nn.ReLU(inplace=True)(self.BNs[area](calc_graph[area]))
+            else:
+                for target in targets:
+                    calc_graph[target] = torch.nn.Sigmoid()(calc_graph[target])
             
-            for target in targets:
-                calc_graph[target] = torch.nn.Sigmoid()(calc_graph[target])
-
             #target_layers = [layer for layer in self.network.layers if layer.source_name in targets]
             source_areas = input_areas.copy()
             source_areas.extend(targets)
