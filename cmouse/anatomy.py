@@ -6,6 +6,9 @@ sys.path.append('../')
 sys.path.append('../../')
 sys.path.append('../../../')
 from mouse_cnn.architecture import *
+import os 
+import pickle
+
 # from config import get_output_shrinkage
 
 class AnatomicalLayer:
@@ -73,13 +76,19 @@ class AnatomicalNet:
     def draw_graph(self, node_size=1600, node_color='yellow', edge_color='red',recurrent = False):
         G, node_label_dict = self.make_graph(recurrent = recurrent)
         plt.figure(figsize=(10,10))
-        pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
+        if recurrent:
+            if os.path.exists("FFmousenet_layout.pkl"):
+                with open("FFmousenet_layout.pkl",'rb') as f:
+                    pos = pickle.load(f)
+        else:            
+            pos = nx.nx_pydot.graphviz_layout(G, prog='dot')
         nx.draw(G, pos, node_size=node_size, node_color=node_color, edge_color=edge_color)
         nx.draw_networkx_labels(G, pos, node_label_dict)
         if recurrent:
             plt.savefig("mousenet_wrecurrence.png",dpi = 300)
         else:
             plt.savefig("mousenet.png",dpi = 300)
+        return pos
 
 def gen_anatomy(architecture,recurrent = False):
     input_depths = ['4']

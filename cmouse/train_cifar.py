@@ -22,7 +22,7 @@ parser.add_argument('--mask', default = 3, type=int, help='if use Gaussian mask'
 args = parser.parse_args()
 SEED = args.seed
 MASK = args.mask
-RUN_NAME_MASK = 'sigmoid_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
+RUN_NAME_MASK = 'ReLU_eachstep_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
 #RUN_NAME_MASK = 'sampled_inference_time_multiplicative_recurrence_%s_%s'%(MASK, RUN_NAME)
 RUN_NAME_MASK_SEED = '%s_seed_%s'%(RUN_NAME_MASK, SEED)
 
@@ -58,6 +58,16 @@ def train(args, model, device, train_loader, optimizer, epoch,training_loss = No
         #print(loss)
         # Backward pass: compute the gradients of the loss w.r.t. the model's parameters
         loss.backward()
+        
+        '''
+        for parameter in list(model.named_parameters()):
+            if  "BNs" not in parameter[0] and 'mask' not in parameter[0] and parameter[1].grad == None:
+                print(parameter[0],"zero grad")
+            elif ("LGNd" in parameter[0] or 'VISpor5' in parameter[0]) and "BNs" not in parameter[0] and 'mask' not in parameter[0]:
+                print (batch_idx,parameter[0],"data",torch.mean(parameter[1].data))
+                print (batch_idx,parameter[0],"grad",torch.mean(parameter[1].grad))
+        '''
+        
         optimizer.step()
         
         '''
@@ -199,9 +209,9 @@ def get_data_loaders():
         raise Exception('DATASET should be cifar10 or cifar100')
     
     train_loader = torch.utils.data.DataLoader(trainset, batch_size=BATCH_SIZE,
-                                            shuffle=True, num_workers=0)
+                                            shuffle=True, num_workers=0,drop_last = True)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=BATCH_SIZE,
-                                            shuffle=False, num_workers=0)
+                                            shuffle=False, num_workers=0,drop_last = True)
      
     # WandB - wandb.watch() automatically fetches all layer dimensions, gradients, model parameters and logs them automatically to your dashboard.
     # Using log="all" log histograms of parameter values in addition to gradients
@@ -229,10 +239,10 @@ def set_save_dir(recurrent = False,nsteps = None):
 def main():
     
     recurrent = True
-    nsteps = 'baseline'
-    step_range = None
-    #nsteps = 'sampled'
-    #step_range = (30,40)
+    #nsteps = 'baseline'
+    #step_range = None
+    nsteps = 'sampled'
+    step_range = (30,40)
     set_save_dir(recurrent,nsteps = nsteps)
     
 
@@ -253,12 +263,13 @@ def main():
     
     # get the mouse network
     
-    '''
-    net_name = 'network_(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
-    architecture = Architecture(data_folder=DATA_DIR)
-    net = gen_network(net_name, architecture)
-    mousenet = MouseNetCompletePool(net, mask=MASK)
-    '''
+    
+    #net_name = 'network_(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
+    #architecture = Architecture(data_folder=DATA_DIR)
+    #net = gen_network(net_name, architecture)
+    #mousenet = MouseNetCompletePool(net, mask=MASK)
+    
+   
     
     
     if recurrent:
@@ -269,21 +280,28 @@ def main():
     
     mousenet.to(device)    
     optimizer = optim.SGD(mousenet.parameters(), lr=LR, momentum=MOMENTUM, weight_decay=5e-4)
+    
+    
+    #optimizer = optim.Adam(mousenet.parameters())
+    #scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [2*EPOCHS//3, 9*EPOCHS//10], gamma=0.2)
+
     config = None
-    #best_acc = test(config, mousenet, device, test_loader, 0,best_acc = best_acc, training_loss = training_loss, \
-    #                validation_loss = validation_loss,recurrent = recurrent,nsteps = nsteps,step_range = step_range)  
+    '''
+    best_acc = test(config, mousenet, device, test_loader, 0,best_acc = best_acc, training_loss = training_loss, \
+                   validation_loss = validation_loss,recurrent = recurrent,nsteps = nsteps,step_range = step_range)  
+    '''    
     #debug_memory()
     for epoch in range(1, EPOCHS + 1):  # loop over the dataset multiple times
         #adjust_learning_rate(config, optimizer, epoch)
         print(epoch)  
-        training_lpss = train(config, mousenet, device, train_loader, optimizer, epoch, training_loss = training_loss,\
+        training_loss = train(config, mousenet, device, train_loader, optimizer, epoch, training_loss = training_loss,\
                                 recurrent = recurrent,nsteps = nsteps,step_range = step_range)
         debug_memory()
         best_acc = test(config, mousenet, device, test_loader, epoch,best_acc = best_acc, training_loss = training_loss, \
                         validation_loss = validation_loss,recurrent = recurrent,nsteps = nsteps,step_range = step_range)  
         #debug_memory()
         #break
-        
+        scheduler.step()
     if recurrent:
         if nsteps == 'sampled':
             outfile = "_".join()
@@ -297,7 +315,8 @@ def main():
 
 if __name__ == "__main__":
     main()
-
+    
+    
 
 
 

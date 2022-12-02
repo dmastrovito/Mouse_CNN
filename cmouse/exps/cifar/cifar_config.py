@@ -4,7 +4,8 @@ import os
 
 DATA_DIR = "/allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN/data/"#os.environ['DATA_DIR']
 RESULT_DIR = "/allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN/cmouse/exps/cifar/myresults/"#os.environ['RESULT_DIR']
-INPUT_SIZE=(3,64,64)
+INPUT_SIZE=(3,32,32)#needed for martins test
+#INPUT_SIZE=(3,64,64)
 NUM_CLASSES = 10
 HIDDEN_LINEAR = 2048
 
