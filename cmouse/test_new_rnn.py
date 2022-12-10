@@ -85,7 +85,7 @@ step_range= (30,40)
 
 mask = 3
 #net = network.load_network_from_pickle(os.path.join(basedir,'network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl'))
-net = network.load_network_from_pickle(os.path.join('recurrent_mousenet_inputsize32_convtranspose2d.pkl'))
+net = network.load_network_from_pickle(os.path.join('recurrent_mousenet_inputsize32.pkl'))
 
 device = torch.device('cuda')
 
