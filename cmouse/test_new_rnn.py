@@ -26,6 +26,8 @@ import random
 import numpy as np
 from mousenet_model import *
 import matplotlib.pyplot as plt
+import pandas as pd
+
 
 basedir = "/allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN/"
 
@@ -37,18 +39,33 @@ def plot_states(states):
         #plt.subplot(4,6,r+1)
         plt.plot(np.arange(1,len(states[region])+1),np.array(states[region]),marker='.')
         plt.title(region)
-        plt.savefig("_".join((region.replace("/","_"),'states_over_time.png')))
+        plt.savefig("_".join((region.replace("/","_"),'states_over_time_new_initialization_Adam_bias_fullsteps_tanh.png')))
     #plt.tight_layout()
     #plt.savefig("states_over_time.png",dpi = 300)
     
     
-def plot_loss(loss):
+def plot_loss(loss,validation = False,acc = None):
     plt.clf()
     plt.plot(loss)
-    plt.title("Training Loss")
+    plt.title("CE Loss")
     plt.tight_layout()
-    plt.savefig("Training_loss.png")
+    if not validation:
+        plt.savefig("Training_loss_new_initialization_Adam_bias_fulsteps_tanh.png")
+    else:
+        if acc is not None:
+            plt.title("ACC" + str(acc)+" %")
+        plt.savefig("Validation_loss_new_initialization_Adam_bias_fullsteps_tanh.png")
         
+ 
+
+def find_average_sparsity(mn):
+    sparsity = []
+    for region in mn.regions:
+        for source in list(region.convs.keys()):
+            mask = region.convs[source].conv[1].mask
+            sparsity.append(mask.sum()/mask.numel())
+    return 1-torch.stack(sparsity), 1-torch.stack(sparsity).mean()
+       
 #file = os.path.join(basedir,'cmouse/exps/cifar/myresults',"mask_3_cifar10_LR_0.001_M_0.5_mousenet/42_83.62.pt")
 #file = os.path.join(basedir,'cmouse/exps/cifar/myresults/recurrent/sampled',"mask_3_cifar10_LR_0.001_M_0.5_mousenet/42_10.0.pt")
 #file = os.path.join(basedir,'cmouse/exps/cifar/myresults/recurrent/sampled/max_tanh_multiplicative_recurrence_3_cifar10_LR_0.005_M_0.5_mousenet/42_57.72.pt')
@@ -73,20 +90,42 @@ net = network.load_network_from_pickle(os.path.join('recurrent_mousenet_inputsiz
 device = torch.device('cuda')
 
 
-mn= mousenet_model.mousenet(net, recurrent = recurrent,device=device)
+mn= mousenet_model.mousenet(net, recurrent = recurrent,device=device,mask=mask)
 train_loader, test_loader = get_data_loaders()
+
+
+'''
+sparsity = {}
+sparsity['connection_name'] = []
+sparsity['connection_sparsity'] = []
+sparsity['mean_weights'] = []
+sparsity['mean_bias'] = []
+
+with torch.no_grad():
+    for region in mn.regions:
+        for key in region.convs.keys():
+            sparsity['connection_name'].append("_".join((key, region.name)))
+            sparsity['connection_sparsity'].append(1-(region.convs[key].conv[1].mask.sum()/region.convs[key].conv[1].mask.numel()).cpu().numpy())
+            sparsity['mean_weights'].append((region.convs[key].conv[1].mask*region.convs[key].conv[1].weight.data).mean().cpu().numpy())
+            sparsity['mean_bias'].append(region.convs[key].conv[1].bias.data.mean().cpu().numpy())
+            
+            
+df = pd.DataFrame(sparsity)
+df.to_csv('recurrent_mousenet_sparsity.csv')
+
+'''
 
 
 loss = nn.CrossEntropyLoss()
 
 
 
-mn.reset(BATCH_SIZE, device)
+
 mn.to(device)
 params = list(mn.named_parameters())
-
-#optimizer = optim.Adam(mn.parameters(),lr = 0.0001)
-optimizer = optim.SGD(mn.parameters(),lr = 0.01)
+lr = 0.0001
+optimizer = optim.Adam(mn.parameters(recurse = True),lr = lr,amsgrad = True)
+#optimizer = optim.SGD(mn.parameters(recurse=True),lr = 0.1)
 
 mn.train()
 '''
@@ -111,16 +150,15 @@ Vloss = []
 for epoch in range(1, EPOCHS + 1):
     for batch_idx, (data, labels) in enumerate(train_loader):
         optimizer.zero_grad()
+        mn.reset(BATCH_SIZE, device)
         data, labels = data.to(device), labels.to(device)
         n_steps = rng.integers(low=step_range[0], high=step_range[1], size=1)[0]   
-        out,states = mn(data,n_steps =n_steps,track_states = True)
+        out,states = mn(data,n_steps = n_steps,track_states = True)
         l = loss(out, labels)
         l.backward()
         
         optimizer.step()
-        
         Trainloss.append(l.detach().cpu().numpy())
-        mn.reset(BATCH_SIZE,device)
         if batch_idx %10 ==0:
             debug_memory()
             plot_states(states)
@@ -128,10 +166,16 @@ for epoch in range(1, EPOCHS + 1):
             for p in params:
                 if p[1].grad != None:
                     print(p[0],p[1].grad.mean())
-            for region in mn.regions:
-                print(region.decay.grad.mean())
+                if "init" in p[0] and p[1].grad != None:
+                    print(p[0],p[1].grad.mean())
+            #for region in mn.regions:
+            #    print(region.decay.grad.mean())
             print(n_steps,epoch,l.detach().cpu().numpy(),batch_idx, "Of",len(train_loader))
-        
+        '''
+        if batch_idx%50 ==0:
+            lr = lr*.1
+            optimizer = optim.Adam(mn.parameters(),lr = lr)
+        '''
         '''
         if batch_idx %100 == 0:
             plt.clf()
@@ -143,16 +187,21 @@ for epoch in range(1, EPOCHS + 1):
       for data, target in test_loader:
           # Load the input features and labels from the test dataset
           data, target = data.to(device), target.to(device)
+          mn.reset(BATCH_SIZE,device)
           # Make predictions: Pass image data from test dataset, make predictions about class image belongs to (0-9 in this case)
           n_steps = rng.integers(low=step_range[0], high=step_range[1], size=1)[0]      
-          output = mn(data, n_steps)                 
+          output,states = mn(data, n_steps=n_steps)                 
+          
           # Compute the loss sum up batch loss
           #test_loss += F.nll_loss(output, target, reduction='sum').item()
           test_loss = loss(output, target)
           pred = output.max(1, keepdim=True)[1]
           correct += pred.eq(target.view_as(pred)).sum().item()         
           Vloss.append(test_loss.cpu().numpy())
+          print(Vloss)
       acc = 100. * correct / len(test_loader.dataset)
+      plot_loss(Vloss,validation = True,acc = acc)
+      
       print(acc)
         
       

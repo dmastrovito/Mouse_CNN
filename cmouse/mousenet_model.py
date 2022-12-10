@@ -59,7 +59,7 @@ class Conv2dMask(nn.Conv2d):
     Conv2d with Gaussian mask 
     """
     def __init__(self, in_channels, out_channels, kernel_size, gsh, gsw, mask=3, stride=1, padding=0,padding_mode= 'zeros'):
-        super(Conv2dMask, self).__init__(in_channels, out_channels, kernel_size, stride=stride,bias= False)
+        super(Conv2dMask, self).__init__(in_channels, out_channels, kernel_size, stride=stride,bias= True)
         if not padding_mode == 'replicate':
             self.mypadding = nn.ConstantPad2d(padding, 0)
         else:
@@ -74,9 +74,12 @@ class Conv2dMask(nn.Conv2d):
             self.mask = nn.Parameter(torch.Tensor(self.make_gaussian_kernel_mask_vary_channel(gsh, gsw, kernel_size, out_channels, in_channels)), requires_grad=False)
         else:
             assert("mask should be 0, 1, 2, 3!")
- 
-        
-           
+            
+        if self.mask is not None:
+            with torch.no_grad():
+                self.weight.data /= self.mask.mean((1,2,3), keepdims=True).sqrt()
+                self.weight.data = torch.nan_to_num(self.weight.data)
+          
     def forward(self, input):
         if self.mask is not None:
             return super(Conv2dMask, self)._conv_forward(self.mypadding(input), self.weight*self.mask, self.bias)
@@ -125,7 +128,7 @@ class ConvTranspose2dMask(nn.ConvTranspose2d):
     Conv2d with Gaussian mask 
     """
     def __init__(self, in_channels, out_channels, kernel_size, gsh, gsw, mask=3, stride=1,dilation=1, output_padding=0,padding = 0):
-        super(ConvTranspose2dMask, self).__init__(in_channels, out_channels, kernel_size,stride= stride,padding = padding,output_padding = output_padding,dilation = dilation,bias = False)
+        super(ConvTranspose2dMask, self).__init__(in_channels, out_channels, kernel_size,stride= stride,padding = padding,output_padding = output_padding,dilation = dilation,bias = True)
         if mask == 0:
             self.mask = None
         if mask==1:
@@ -136,9 +139,12 @@ class ConvTranspose2dMask(nn.ConvTranspose2d):
             self.mask = nn.Parameter(torch.Tensor(self.make_gaussian_kernel_mask_vary_channel(gsh, gsw, kernel_size, in_channels, out_channels)), requires_grad=False)
         else:
             assert("mask should be 0, 1, 2, 3!")
- 
         
-           
+        if self.mask is not None:
+            with torch.no_grad():
+                self.weight.data /= self.mask.mean((1,2,3), keepdims=True).sqrt()
+                self.weight.data = torch.nan_to_num(self.weight.data)
+                
     def forward(self, input):
         if self.mask is not None:
             self.weight.data = self.weight.data*self.mask
@@ -213,15 +219,17 @@ class Region(nn.Module):
         self.out_channels = params['out_channels']
         self.out_size = int(params['out_size'])
         self.decay = nn.Parameter(torch.zeros((1,self.out_channels, self.out_size, self.out_size),device=device))
+        self.init_state = nn.Parameter(torch.zeros((self.out_channels,self.out_size, self.out_size),device=device)+1e-3)
     
     def forward(self,states):
+        tanh = nn.Tanh()
         state = torch.stack([self.convs[source](states[source],self.state) for source in self.sources])
-        self.state = self.state*self.decay.sigmoid() + state.sum(dim=0)/len(state)
-        #self.state = self.state + state.sum(dim=0)/len(state)   
+        #self.state = self.state*self.decay.sigmoid() + state.sum(dim=0)
+        self.state = tanh(self.state + state.sum(dim=0))
         
          
     def reset(self,batch_size,device):
-        self.state = torch.zeros((batch_size,self.out_channels, self.out_size,self.out_size),requires_grad = True,device = device)
+        self.state = self.init_state.unsqueeze(0).repeat(batch_size, 1, 1, 1).clone()
         
     
 class LGNd(nn.Module):
@@ -283,7 +291,7 @@ class mousenet(nn.Module):
                             dilation = params.dilation,output_padding = params.output_padding,mask=mask,padding = params.padding)
         
         
-        self.regions = []
+        self.regions = torch.nn.ModuleList()
         for area in areas[1:]:
             layers = [ layer for layer in network.layers if layer.target_name == area]
             sources = [layer.source_name for layer in layers]

@@ -220,8 +220,28 @@ class Network:
         :param anet: anatomy class which contains anatomical connections
         :param architecture: architecture class which calls set_num_channels for calculating connection strength
         """
-        outchannels = []
+        
         hierarchy_depth = 0
+        net_params = {}
+        net_params['source'] = []
+        net_params['target'] = []
+        net_params['in heirarchy'] = []
+        net_params['out hierarchy'] = []
+        net_params['peak_probability = gsh'] = []
+        net_params['kernel_widths_pixels = gsw'] = []
+        net_params['in_size'] = []
+        net_params['out_size'] = []
+        net_params['in_channels'] = []
+        net_params['out_channels'] = []
+        net_params['out_sigma'] = []
+        net_params['kernel_widths_mm'] = []
+        net_params['gammas'] = []
+        net_params['padding'] = []
+        net_params['stride'] = []
+        net_params['output_padding'] =[]
+        net_params['num_neurons_target'] = []
+        net_params['FF or FB'] = []
+        
         # construct conv layer for input -> LGNd
         self.recurrent = recurrent
         
@@ -258,9 +278,14 @@ class Network:
             
             
         for i, e in enumerate(edges):
-            outchannels.append([])
+            
             in_layer_name = e[0].area+e[0].depth
             out_layer_name = e[1].area+e[1].depth
+            net_params['source'].append(in_layer_name)
+            net_params['target'].append(out_layer_name)
+            net_params['in heirarchy'].append(architecture.get_hierarchical_level(e[0].area))
+            net_params['out hierarchy'].append(architecture.get_hierarchical_level(e[1].area))
+            
             print('constructing layer %s: %s to %s'%(i, in_layer_name, out_layer_name))
             
             in_conv_layer = self.find_conv_target_area(in_layer_name)
@@ -269,6 +294,7 @@ class Network:
             
             out_anat_layer = anet.find_layer(e[1].area, e[1].depth)
             level = architecture.get_hierarchical_level(e[0].area)
+            
             hierarchy_depth = hierarchy_depth if hierarchy_depth  >  level else level
             if recurrent:
                 out_sigma = get_out_sigma(e[0].area, e[0].depth, e[1].area, e[1].depth,\
@@ -278,28 +304,50 @@ class Network:
                 out_sigma = get_out_sigma(e[0].area, e[0].depth, e[1].area, e[1].depth,\
                                      architecture.get_hierarchical_level(e[0].area) ,architecture.get_hierarchical_level(e[1].area))
             out_size = in_size * out_sigma
-            
-            
             self.area_size[e[1].area+e[1].depth] = out_size
             out_channels = np.floor(out_anat_layer.num/out_size**2)
             print(out_channels)
-            outchannels[i].append(out_channels)
+           
+            
+            net_params['in_size'].append(in_size)
+            net_params['out_size'].append(out_size)
+            net_params['in_channels'].append(in_channels)
+            net_params['out_channels'].append(out_channels)
+            net_params['out_sigma'].append(out_sigma)
+           
+            
+            
             architecture.set_num_channels(e[1].area, e[1].depth, out_channels)
             self.area_channels[e[1].area+e[1].depth] = out_channels
             
             if recurrent:
                 if self.hierarchical_order.index(in_layer_name) < self.hierarchical_order.index(out_layer_name):
                     FF = True
+                    net_params['FF or FB'].append("FF")
                 else:
                     FF = False
+                    net_params['FF or FB'].append("FB")
             else:
                 FF = True
+                net_params['FF or FB'].append("FF")
+            
+            gsh=architecture.get_kernel_peak_probability(e[0].area, e[0].depth, e[1].area, e[1].depth)
+            gsw=architecture.get_kernel_width_pixels(e[0].area, e[0].depth, e[1].area, e[1].depth)
+            net_params['peak_probability = gsh'].append(gsh)
+            net_params['kernel_widths_pixels = gsw'].append(gsw)
+            
+            net_params['gammas'].append(architecture.targets[e[1].area+e[1].depth].gamma)
+            if e[0].area == "LGNd":
+                net_params['kernel_widths_mm'].append(architecture.targets[e[1].area+e[1].depth].get_kernel_width_mm("LGd"))
+            else:
+                net_params['kernel_widths_mm'].append(architecture.targets[e[1].area+e[1].depth].get_kernel_width_mm(e[0].area+e[0].depth))
+            net_params['num_neurons_target'].append(architecture.get_num_neurons(e[1].area, e[1].depth))
+            
             
             convlayer = ConvLayer(in_layer_name, out_layer_name, 
                                   ConvParam(in_channels=in_channels, 
                                             out_channels=out_channels,
-                                        gsh=architecture.get_kernel_peak_probability(e[0].area, e[0].depth, e[1].area, e[1].depth),
-                                        gsw=architecture.get_kernel_width_pixels(e[0].area, e[0].depth, e[1].area, e[1].depth), \
+                                        gsh=gsh,gsw = gsw, \
                                         out_sigma=out_sigma,in_size = in_size,out_size= out_size,FF = FF))
             
                 
@@ -309,16 +357,25 @@ class Network:
                     conv_out_size = int(1 + ((in_size + (2*convlayer.params.padding) - 1*(convlayer.params.kernel_size -1) - 1)/convlayer.params.stride))
                 else:
                     conv_out_size =int(1 + ((in_size + convlayer.params.padding[0] +convlayer.params.padding[1]  - 1*(convlayer.params.kernel_size -1) - 1)/convlayer.params.stride))
+                net_params['output_padding'].append(0)
             else:
                 conv_out_size = (in_size -1)*convlayer.params.stride -2*convlayer.params.padding + convlayer.params.dilation*(convlayer.params.kernel_size -1) + convlayer.params.output_padding + 1
+                net_params['output_padding'].append(convlayer.params.output_padding)
             assert conv_out_size == out_size
-                
+            
+            
+            
+            net_params['padding'].append(convlayer.params.padding)
+            net_params['stride'].append(convlayer.params.stride)
+            
+            
             self.layers.append(convlayer)
         
         
         self.hierarchy_depth = hierarchy_depth
+        return net_params
         
-        return outchannels
+        
             
          
        
