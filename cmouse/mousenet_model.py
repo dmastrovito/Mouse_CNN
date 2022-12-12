@@ -233,14 +233,16 @@ class Region(nn.Module):
         
     
 class LGNd(nn.Module):
-    def __init__(self,convolutional_layers,params):
+    def __init__(self,convolutional_layers,params,device):
        super(LGNd,self).__init__() 
        self.out_channels = params.out_channels
        self.out_size = int(params.out_size)
        self.convs = convolutional_layers
+       self.init_state = nn.Parameter(torch.zeros((self.out_channels,self.out_size, self.out_size),device=device)+1e-3)
        
     def reset(self, batch_size,device):
-        self.state = torch.zeros((batch_size,self.out_channels, self.out_size,self.out_size),requires_grad = True,device=device)
+        self.state = self.init_state.unsqueeze(0).repeat(batch_size, 1, 1, 1).clone()
+        
        
     def forward(self,input):
         self.state = self.convs(input)
@@ -267,7 +269,7 @@ class mousenet(nn.Module):
         print(layer_name)
         self.LGNd = LGNd(FFConnection(layer_name, params.in_channels, params.out_channels,\
                                     params.kernel_size, params.gsh, params.gsw, params.in_size, params.out_size,stride=params.stride, \
-                                        mask=mask, padding=params.padding,padding_mode = params.padding_mode),params)
+                                        mask=mask, padding=params.padding,padding_mode = params.padding_mode),params,device = device)
         #self.BN = nn.BatchNorm2d(params.in_channels) 
         self.connections = nn.ModuleDict()
         region_params = {}

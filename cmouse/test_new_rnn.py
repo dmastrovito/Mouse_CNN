@@ -44,17 +44,26 @@ def plot_states(states):
     #plt.savefig("states_over_time.png",dpi = 300)
     
     
-def plot_loss(loss,validation = False,acc = None):
+def plot_loss(loss,accuracy = None, validation = False,acc = None):
     plt.clf()
-    plt.plot(loss)
-    plt.title("CE Loss")
-    plt.tight_layout()
-    if not validation:
-        plt.savefig("Training_loss_new_initialization_Adam_bias_fulsteps_tanh.png")
-    else:
+    if validation:
+        plt.subplot(2,1,1)
+        plt.plot(loss)
+        plt.title("CE Loss")
+        plt.subplot(2,1,2)
+        plt.plot(accuracy)
         if acc is not None:
-            plt.title("ACC" + str(acc)+" %")
+            plt.title( acc +" %")
+        else:
+            plt.title("accuracy")
+        plt.tight_layout()
         plt.savefig("Validation_loss_new_initialization_Adam_bias_fullsteps_tanh.png")
+    else:
+        plt.plot(loss)
+        plt.tight_layout()
+        plt.savefig("Training_loss_new_initialization_Adam_bias_fulsteps_tanh.png")
+
+           
         
  
 
@@ -146,7 +155,8 @@ for i in range(len(mn.regions)):
 '''
 Trainloss = []
 Vloss = []
-    
+accuracy = []
+   
 for epoch in range(1, EPOCHS + 1):
     for batch_idx, (data, labels) in enumerate(train_loader):
         optimizer.zero_grad()
@@ -171,11 +181,12 @@ for epoch in range(1, EPOCHS + 1):
             #for region in mn.regions:
             #    print(region.decay.grad.mean())
             print(n_steps,epoch,l.detach().cpu().numpy(),batch_idx, "Of",len(train_loader))
-        '''
-        if batch_idx%50 ==0:
-            lr = lr*.1
-            optimizer = optim.Adam(mn.parameters(),lr = lr)
-        '''
+        
+        if batch_idx%100 ==0:
+            torch.save(mn.state_dict(),"recurrent_mousenet_inputsize32.pth")
+            #lr = lr*.1
+            #optimizer = optim.Adam(mn.parameters(),lr = lr)
+        
         '''
         if batch_idx %100 == 0:
             plt.clf()
@@ -200,7 +211,8 @@ for epoch in range(1, EPOCHS + 1):
           Vloss.append(test_loss.cpu().numpy())
           print(Vloss)
       acc = 100. * correct / len(test_loader.dataset)
-      plot_loss(Vloss,validation = True,acc = acc)
+      accuracy.append(acc)
+      plot_loss(Vloss,accuracy= accuracy, validation = True,acc = " ".join(("epoch",str(epoch), "acc",str(acc))))
       
       print(acc)
         
