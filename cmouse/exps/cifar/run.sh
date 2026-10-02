@@ -1,1 +1,1 @@
-python ../../train_cifar.py
+#!/bin/env bashpython train_cifar.py#srun -p braintv --gres gpu:v100:1 --mem-per-gpu 32gb -t 6:00:00 --pty bash #export PYTHONPATH=$PYTHONPATH:/allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN/cmouse/exps/cifar/#cd /allen/programs/mindscope/workgroups/tiny-blue-dot/mousenet/Mouse_CNN/cmouse/#exps/cifar/run.sh

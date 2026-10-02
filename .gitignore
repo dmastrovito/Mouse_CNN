@@ -116,3 +116,71 @@ pics/
 
 mouse_connectivity_models/
 
+
+# --- Added 2026-09-16 during cleanup ---
+# macOS metadata
+._*
+.DS_Store
+
+# LibreOffice / Office lock files
+.~lock.*
+
+# Large data directories assumed to be provided out-of-band
+# (Allen mouse connectivity / CCF / voxel model / vendored mcmodels)
+ccf_2015/
+ccf_2016/
+ccf_2017/
+voxel_model/
+voxel_model_manifest.json
+mouse_connectivity/
+annotation/
+mcm/
+
+# Local Python venvs / caches
+.vscode/
+.idea/
+
+# Model / data artifacts previously matched by broken patterns
+*.pkl
+*.tar
+*.pth
+*.pth.tar
+*.sav
+*.eps
+*.ps
+
+# Loss / diagnostic PNGs at repo root (training outputs)
+/pngs/
+/mfv/
+
+# Result/reference CSVs at repo root (ignore new ones; already-tracked csvs stay tracked)
+/*.csv
+/*.csv.gz
+/*.out
+/*.json
+
+# Training/diagnostic images at repo root
+/*.png
+/*.jpg
+/*.jpeg
+
+# --- Additional exclusions (large training outputs / temp files) ---
+*.pt
+*.tmp
+tmp*
+cmouse/exps/
+cmouse/test_out/
+cmouse/connectivity/
+example/
+deconv_vis/
+models/
+beforeVISam/
+connectivity/
+
+# Training output directories
+mousenet_inputsize64_ccf_*/
+recurrent_mousenet_inputsize64_ccf_*/
+new_mousenet_rnn
+
+#Archived files
+archive/

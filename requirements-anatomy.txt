@@ -1,0 +1,24 @@
+# MouseNet (recurrent) — anatomy-rebuild extras
+#
+# Only needed if you want to regenerate the pickled network from CCF data
+# via mouse_cnn/ + the vendored mcmodels package. For simply loading an
+# existing .pkl and running/training the model, requirements.txt is enough.
+#
+# Install (after setting up the base env):
+#   pip install -r requirements-anatomy.txt
+#   pip install -e mcm/mouse_connectivity_models
+#
+# Note: mcmodels transitively depends on allensdk, which pins older versions
+# of several packages. If pip can't resolve, create a dedicated venv for the
+# anatomy-rebuild workflow instead of mixing it with the runtime env.
+
+-r requirements.txt
+
+# Anatomy / connectivity data I/O
+h5py
+pynrrd
+six
+
+# allensdk pulled in transitively by `pip install -e mcm/mouse_connectivity_models`;
+# listed here explicitly for visibility.
+allensdk

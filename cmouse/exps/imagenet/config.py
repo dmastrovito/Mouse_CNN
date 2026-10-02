@@ -15,6 +15,21 @@ INPUT_GSW = 4 #Gaussian width of input to LGNv
 OUTPUT_AREAS = ['VISp5','VISl5', 'VISrl5', 'VISli5', 'VISpl5', 'VISal5', 'VISpor5']
 
 
+def get_out_sigma(source_area, source_depth, target_area, target_depth,source_hierarchy,target_hierarchy):
+    if target_depth == '4':
+        if target_area != 'VISp' and target_area != 'VISpor' and target_hierarchy > source_hierarchy:
+            return 1/2
+        if target_area == 'VISpor':
+            if source_area == 'VISp' and target_hierarchy > source_hierarchy:
+                return 1/2 
+    if source_depth == '4':
+        if source_area != 'VISp' and source_area != 'VISpor' and source_hierarchy > target_hierarchy:
+            return 2
+        if source_area == 'VISpor':
+            if target_area == 'VISp' and source_hierarchy > target_hierarchy:
+                return 2        
+    return 1
+'''
 def get_out_sigma(source_area, source_depth, target_area, target_depth):
     if target_depth == '4':
         if target_area != 'VISp' and target_area != 'VISpor':
@@ -22,4 +37,7 @@ def get_out_sigma(source_area, source_depth, target_area, target_depth):
         if target_area == 'VISpor':
             if source_area == 'VISp':
                 return 1/2    
-    return 1
+  
+    
+ return 1
+'''

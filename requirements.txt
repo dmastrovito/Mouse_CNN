@@ -1,0 +1,37 @@
+# MouseNet (recurrent) — runtime requirements
+#
+# Covers:
+#   - minimal_rnn/   (standalone RNNMouseNet + CIFAR trainer)
+#   - cmouse/        (MouseNetCompletePool, loaded from a saved .pkl)
+#   - mouse_cnn/     (import-time dependencies only; some submodules need
+#                    mcmodels/allensdk — see requirements-anatomy.txt)
+#
+# Install:
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install --upgrade pip
+#   pip install -r requirements.txt
+#
+# If you need to rebuild the anatomy-constrained network from scratch,
+# additionally install -r requirements-anatomy.txt.
+
+# Deep learning
+torch
+torchvision
+
+# Numerics / data
+numpy
+scipy
+pandas
+networkx
+
+# Images / plotting
+matplotlib
+Pillow
+
+# Classical ML / image processing (used by mouse_cnn/*)
+scikit-image
+scikit-learn
+
+# UX
+tqdm

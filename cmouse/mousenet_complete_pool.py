@@ -3,14 +3,38 @@ from torch import nn
 import networkx as nx
 import numpy as np
 from config import  INPUT_SIZE, EDGE_Z, OUTPUT_AREAS, HIDDEN_LINEAR, NUM_CLASSES
+import collections, gc, resource, torch
+import torchvision
 
+
+def debug_memory():
+    '''
+    print('maxrss = {}'.format(
+        resource.getrusage(resource.RUSAGE_SELF).ru_maxrss))
+    tensors = collections.Counter(
+        (str(o.device), str(o.dtype), tuple(o.shape))
+        for o in gc.get_objects()
+        if torch.is_tensor(o)
+    )
+    for line in sorted(tensors.items()):
+        print('{}\t{}'.format(*line))
+    '''
+    
+    print("torch.cuda.memory_allocated: %fGB"%(torch.cuda.memory_allocated(0)/1024/1024/1024))
+    print("torch.cuda.memory_reserved: %fGB"%(torch.cuda.memory_reserved(0)/1024/1024/1024))
+    print("torch.cuda.max_memory_reserved: %fGB"%(torch.cuda.max_memory_reserved(0)/1024/1024/1024))
+
+    
 class Conv2dMask(nn.Conv2d):
     """
     Conv2d with Gaussian mask 
     """
-    def __init__(self, in_channels, out_channels, kernel_size, gsh, gsw, mask=3, stride=1, padding=0):
+    def __init__(self, in_channels, out_channels, kernel_size, gsh, gsw, mask=3, stride=1, padding=0,padding_mode= 'zeros'):
         super(Conv2dMask, self).__init__(in_channels, out_channels, kernel_size, stride=stride)
-        self.mypadding = nn.ConstantPad2d(padding, 0)
+        if not padding_mode == 'replicate':
+            self.mypadding = nn.ConstantPad2d(padding, 0)
+        else:
+            self.mypadding = nn.ReflectionPad2d(padding)
         if mask == 0:
             self.mask = None
         if mask==1:
@@ -21,7 +45,11 @@ class Conv2dMask(nn.Conv2d):
             self.mask = nn.Parameter(torch.Tensor(self.make_gaussian_kernel_mask_vary_channel(gsh, gsw, kernel_size, out_channels, in_channels)), requires_grad=False)
         else:
             assert("mask should be 0, 1, 2, 3!")
-
+        
+        with torch.no_grad():
+            self.weight.data = self.weight.data/10.
+            self.bias.data = self.bias.data/100.
+           
     def forward(self, input):
         if self.mask is not None:
             return super(Conv2dMask, self)._conv_forward(self.mypadding(input), self.weight*self.mask, self.bias)
@@ -62,29 +90,72 @@ class Conv2dMask(nn.Conv2d):
                 re[i, j, :] = self.make_gaussian_kernel_mask(peak, sigma)
         return re
 
+
+                
+      
+def _reconstruct_area_depth(hierarchical_order):
+    """Rebuild per-area (anatomical_level, cortical_layer_rank) tuples from a
+    hierarchical_order list produced by Network.hierarchical_sort.
+
+    Exploits the stable sort property: within a single anatomical level the
+    cortical ranks are monotonically non-decreasing (L4 < L2/3 < L5), so any
+    decrease marks a new anatomical level.
+    """
+    def cortical_rank(name):
+        if name.endswith('2/3'): return 2
+        if name.endswith('4'):   return 1
+        if name.endswith('5'):   return 3
+        return 0
+    depths = {}
+    level = 0
+    prev_rank = -1
+    for name in hierarchical_order:
+        rank = cortical_rank(name)
+        if (rank < prev_rank) or (prev_rank == 0 and rank > 0 and depths):
+            level += 1
+        depths[name] = (level, rank)
+        prev_rank = rank
+    return depths
+
+
 class MouseNetCompletePool(nn.Module):
     """
     torch model constructed by parameters provided in network.
     """
-    def __init__(self, network, mask=3):
+    def __init__(self, network, mask=3,recurrent = False):
         super(MouseNetCompletePool, self).__init__()
         self.Convs = nn.ModuleDict()
         self.BNs = nn.ModuleDict()
         self.network = network
         
-        G, _ = network.make_graph()
-        self.top_sort = list(nx.topological_sort(G))
+        G, _ = network.make_graph(recurrent = recurrent)
+        
+        if not recurrent:
+            self.areas = list(nx.topological_sort(G))
+            padding_mode = 'zeros'
+        else:
+            self.areas = network.hierarchical_order
+
+        # (anatomical_level, cortical_layer_rank) per area; prefer the
+        # version stored at anatomy-build time; reconstruct for older pickles.
+        self.area_depth = (
+            dict(network.area_depth) if hasattr(network, 'area_depth')
+            else _reconstruct_area_depth(network.hierarchical_order)
+        )
 
         for layer in network.layers:
             params = layer.params
+            print('layer.source_name',layer.source_name, 'layer.target_name',layer.target_name )
             self.Convs[layer.source_name + layer.target_name] = Conv2dMask(params.in_channels, params.out_channels, params.kernel_size,
-                                                    params.gsh, params.gsw, stride=params.stride, mask=mask, padding=params.padding)
+                                                    params.gsh, params.gsw, stride=params.stride, mask=mask, padding=params.padding,padding_mode = params.padding_mode)
             ## plotting Gaussian mask
             #plt.title('%s_%s_%sx%s'%(e[0].replace('/',''), e[1].replace('/',''), params.kernel_size, params.kernel_size))
             #plt.savefig('%s_%s'%(e[0].replace('/',''), e[1].replace('/','')))
+            #if params.kernel_size >0 or params.padding >0:
+                
             if layer.target_name not in self.BNs:
                 self.BNs[layer.target_name] = nn.BatchNorm2d(params.out_channels)
-
+                
         # calculate total size output to classifier
         total_size=0
         
@@ -113,8 +184,117 @@ class MouseNetCompletePool(nn.Module):
             # nn.Dropout(),
             # nn.Linear(HIDDEN_LINEAR, NUM_CLASSES),
         )
+                     
+    
+    def get_img_feature_recurrent(self, x, area_list, flatten=True,n_steps = None,return_calc_graph = False):
+        nt = self.network.hierarchy_depth
+        calc_graph = {}
+        #size_mismatch = []
+        area = 'LGNd'
+        relu = torch.nn.ReLU(inplace = True)
+        layer = self.network.find_conv_source_target('input', area)
+        layer_name = layer.source_name + layer.target_name
+        convolution = self.BNs[area](self.Convs[layer_name](x))
+        calc_graph[area] = relu(convolution)
+        #calc_graph[area] = torch.maximum(torch.tanh(convolution),torch.zeros_like(convolution))
+        #calc_graph[area] =  torch.nn.Sigmoid()(self.BNs[area](self.Convs[layer_name](x))) + .01
+        #calc_graph[area] = torch.nn.Sigmoid()(self.Convs[layer_name](x))
+        source_areas = ['LGNd']
+        input_areas = ['LGNd']
+        #edges_computed = []
+        
+        finished = False
+        ncalc = 0 
+        nt = 0
+        #ec = []
+        
+        
+        while len(source_areas) >0 and not finished:
+            #print(nt)
+            target_layers = [layer for layer in self.network.layers if layer.source_name in source_areas]
+            target_layers = list(set(target_layers))
+            targets = [layer.target_name for layer in target_layers]
+            targets = list(set(targets))
+            if n_steps is  None:
+                if len(target_layers) == len(self.network.layers) - 1:
+                    finished = True
+            else:
+                if len(target_layers) == len(self.network.layers) - 1 and nt == n_steps:
+                    finished = True
+              
+            
+            for layer in target_layers:
+                layer_name = layer.source_name + layer.target_name
+                convolution = self.Convs[layer_name](calc_graph[layer.source_name])
+                if layer.target_name not in calc_graph:
+                    calc_graph[layer.target_name] = convolution
+                    ncalc += 1
+                    #ec.append(layer_name)
+                #elif layer.out_size != convolution.shape[2]:
+                #    pad = nn.ConstantPad2d(int((layer.out_size-calc_graph[layer.source_name].shape[2])/2),0)
+                #    calc_graph[layer.target_name] = calc_graph[layer.target_name] + self.Convs[layer_name](pad(calc_graph[layer.source_name]))
+                    
+                else:
+                      # Compare by (anatomical_level, cortical_layer_rank) tuple so same-depth
+                      # peers are treated consistently (both additive) regardless of their
+                      # arbitrary within-tie-group ordering in hierarchical_order.
+                      tgt_depth = self.area_depth[layer.target_name]
+                      src_depth = self.area_depth[layer.source_name]
+                      if tgt_depth >= src_depth:
+                          calc_graph[layer.target_name] = relu(calc_graph[layer.target_name] + convolution)
+                          ncalc += 1
+                          #ec.append(layer_name)
+                      else:
+                          calc_graph[layer.target_name] =  relu(calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution))
+                          #calc_graph[layer.target_name] =  torch.nn.functional.max_pool2d(calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution) ,5,padding=2,stride =1)
+                          ncalc += 1
+            '''
+            if finished:
+                for target in targets:
+                    calc_graph[target] = torch.nn.Sigmoid()(self.BNs[target](calc_graph[target]))
+            else:
+            '''
+            for target in targets:
+                #calc_graph[target] = torch.nn.Sigmoid()(calc_graph[target])+ .01
+                calc_graph[target] = torch.maximum(torch.tanh(calc_graph[target]),torch.zeros_like(calc_graph[target]))
+                    #means = torch.mean(calc_graph[target],dim = 0, keepdim = True)
+                    #stds = torch.std(calc_graph[target],dim = 0, keepdim = True)
+                    #calc_graph[target] = nn.ReLU(inplace=True)((calc_graph[target] - means)/stds)
+                    
+            #target_layers = [layer for layer in self.network.layers if layer.source_name in targets]
+            source_areas = input_areas.copy()
+            source_areas.extend(targets)
+            
+            #edges_computed.append(ec)
+            #ec = []
+            nt += 1
+           
 
-    def get_img_feature(self, x, area_list, flatten=True):
+        #print(ncalc,nt)
+        if len(area_list) == 1:
+            if flatten:
+                return torch.flatten(calc_graph['%s'%(area_list[0])], 1)
+            else:
+                return calc_graph['%s'%(area_list[0])]
+        else:
+            re = None
+            for area in area_list:
+                if re is None:
+                    re = torch.flatten(torch.nn.AdaptiveAvgPool2d(4) (calc_graph[area]), 1)
+                    # re = torch.flatten(
+                        # nn.ReLU(inplace=True)(self.BNs['%s_downsample'%area](self.Convs['%s_downsample'%area](calc_graph[area]))), 
+                        # 1)
+                else:
+                    re=torch.cat([torch.flatten(    
+                        torch.nn.AdaptiveAvgPool2d(4) (calc_graph[area]),1), re], axis=1)
+            if return_calc_graph:
+                return re,calc_graph
+            else:
+                del calc_graph
+                return re, None
+                        
+              
+    def get_img_feature(self, x, area_list, flatten=True,SUBFIELDS=False,return_calc_graph = False):
         """
         function for get activations from a list of layers for input x
         :param x: input image set Tensor with size (num_img, INPUT_SIZE[0], INPUT_SIZE[1], INPUT_SIZE[2])
@@ -124,23 +304,38 @@ class MouseNetCompletePool(nn.Module):
         """
         calc_graph = {}
 
-        for area in self.top_sort:
+        for area in self.areas:
             if area == 'input':
                 continue
    
             if area == 'LGNd' or area == 'LGNv':
                 layer = self.network.find_conv_source_target('input', area)
                 layer_name = layer.source_name + layer.target_name
-                calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](x)))
+
+                if SUBFIELDS:
+                    left, width, bottom, height = self.sub_indices[layer_name]
+                    source_field = torch.narrow(torch.narrow(x, 2, left, width), 3, bottom, height) #TODO: check top/bottom direction
+                    calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](source_field)))
+                else:
+                    calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](x)))
+
                 continue
 
             for layer in self.network.layers:
                 if layer.target_name == area:
                     layer_name = layer.source_name + layer.target_name
-                    if area not in calc_graph:
-                        calc_graph[area] = self.Convs[layer_name](calc_graph[layer.source_name])
+
+                    if SUBFIELDS:
+                        left, width, bottom, height = self.sub_indices[layer_name] #TODO: incorporate padding here
+                        source_field = torch.narrow(torch.narrow(calc_graph[layer.source_name], 2, left, width), 3, bottom, height)
+                        layer_output = self.Convs[layer_name](source_field)
                     else:
-                        calc_graph[area] = calc_graph[area] + self.Convs[layer_name](calc_graph[layer.source_name])
+                        layer_output = self.Convs[layer_name](calc_graph[layer.source_name])
+
+                    if area not in calc_graph:
+                        calc_graph[area] = layer_output
+                    else:
+                        calc_graph[area] = calc_graph[area] + layer_output
             calc_graph[area] = nn.ReLU(inplace=True)(self.BNs[area](calc_graph[area]))
         
         if len(area_list) == 1:
@@ -173,9 +368,91 @@ class MouseNetCompletePool(nn.Module):
                 #         re = torch.cat([torch.flatten(calc_graph[area], 1), re], axis=1)
                 #     else:
                 #         re = torch.flatten(calc_graph[area], 1)
-        return re
+        
+        if return_calc_graph:
+            return re,calc_graph
+        else:
+            del calc_graph
+            return re, None
+    
+    '''
+    def get_img_feature(self, x, area_list, flatten=True):
+        """
+        function for get activations from a list of layers for input x
+        :param x: input image set Tensor with size (num_img, INPUT_SIZE[0], INPUT_SIZE[1], INPUT_SIZE[2])
+        :param area_list: a list of area names
+        :return: if list length is 1, return the (flatten/unflatten) activation of that area
+                 if list length is >1, return concatenated flattened activation of the areas.
+        """
+        calc_graph = {}
+        size_mismatch =[]
+        ncalc = 0
+        edges_computed = []
+        for area in self.areas:
+            if area == 'input':
+                continue
+            print('area',area)
+            if area == 'LGNd' or area == 'LGNv':
+                layer = self.network.find_conv_source_target('input', area)
+                layer_name = layer.source_name + layer.target_name
+                calc_graph[area] =  nn.ReLU(inplace=True)(self.BNs[area](self.Convs[layer_name](x)))
+                continue
+            for layer in self.network.layers:
+                if layer.target_name == area:
+                    layer_name = layer.source_name + layer.target_name
+                    print('layer_name',layer_name,'layer.source_name',layer.source_name)
+                    if area not in calc_graph and layer.source_name in calc_graph:
+                        calc_graph[area] = self.Convs[layer_name](calc_graph[layer.source_name])
+                        ncalc += 1
+                    elif area in calc_graph and layer.source_name in calc_graph:
+                        try:
+                            calc_graph[area] = calc_graph[area] + self.Convs[layer_name](calc_graph[layer.source_name]) 
+                            ncalc += 1
+                        except RuntimeError:
+                                size_mismatch.append((layer_name,area, layer.source_name))
+                                print('layer_name',layer_name,'layer.source_name',layer.source_name,self.Convs[layer_name])
+            calc_graph[area] = nn.ReLU(inplace=True)(self.BNs[area](calc_graph[area]))
+        
+        print(ncalc)
+        if len(area_list) == 1:
+            if flatten:
+                return torch.flatten(calc_graph['%s'%(area_list[0])], 1)
+            else:
+                return calc_graph['%s'%(area_list[0])]
 
-    def forward(self, x):
-        x = self.get_img_feature(x, OUTPUT_AREAS)
+        else:
+            re = None
+            for area in area_list:
+                if re is None:
+                    re = torch.flatten(torch.nn.AdaptiveAvgPool2d(4) (calc_graph[area]), 1)
+                    # re = torch.flatten(
+                        # nn.ReLU(inplace=True)(self.BNs['%s_downsample'%area](self.Convs['%s_downsample'%area](calc_graph[area]))), 
+                        # 1)
+                else:
+                    re=torch.cat([torch.flatten(    
+                        torch.nn.AdaptiveAvgPool2d(4) (calc_graph[area]), 
+                        1), re], axis=1)
+                    # re=torch.cat([
+                        # torch.flatten(
+                        # nn.ReLU(inplace=True)(self.BNs['%s_downsample'%area](self.Convs['%s_downsample'%area](calc_graph[area]))), 
+                        # 1), 
+                        # re], axis=1)
+                # if area == 'VISp5':
+                #     re=torch.flatten(self.visp5_downsampler(calc_graph['VISp5']), 1)
+                # else:
+                #     if re is not None:
+                #         re = torch.cat([torch.flatten(calc_graph[area], 1), re], axis=1)
+                #     else:
+                #         re = torch.flatten(calc_graph[area], 1)
+            return re,size_mismatch
+    '''
+    
+    def forward(self, x,n_steps=None,return_calc_graph = False):
+        if self.network.recurrent:
+            x,calc_graph = self.get_img_feature_recurrent(x,OUTPUT_AREAS,n_steps=n_steps,return_calc_graph = return_calc_graph)
+        else:
+            x,calc_graph = self.get_img_feature(x, OUTPUT_AREAS,return_calc_graph = return_calc_graph)
+            
+            
         x = self.classifier(x)
-        return x
+        return x, calc_graph

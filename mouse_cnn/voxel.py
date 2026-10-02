@@ -1,6 +1,8 @@
 import os
 import numpy as np
 import pickle
+import sys
+
 from mcmodels.core import VoxelModelCache
 from mouse_cnn.flatmap import FlatMap
 from mouse_cnn.data import Data
@@ -23,8 +25,13 @@ class VoxelModel():
     # but it takes several seconds to instantiate, so we only want to do it once
     _instance = None
 
-    def __init__(self, data_folder='data_files/'):
-        cache = VoxelModelCache(manifest_file='connectivity/voxel_model_manifest.json')
+    def __init__(self, ccf_version=None):
+        if ccf_version is None:
+            ccf_version = "ccf_2015"
+        data_folder = os.path.join(ccf_version)
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+        cache = VoxelModelCache(manifest_file=os.path.join(data_folder,'voxel_model_manifest.json'),ccf_version ="annotation/"+ccf_version)
         self.source_mask = cache.get_source_mask()
         self.source_keys = self.source_mask.get_key(structure_ids=None)
 
@@ -39,12 +46,18 @@ class VoxelModel():
             print('Loading weights from cache (takes several minutes) ...')
             self.weights = cache.get_weights()
             self.nodes = cache.get_nodes()
+            
             with open(weight_file, 'wb') as file:
                 pickle.dump(self.weights, file)
             with open(node_file, 'wb') as file:
                 pickle.dump(self.nodes, file)
+        
         self.structure_tree = cache.get_structure_tree()
-
+        self.data_folder = data_folder
+    
+    def get_data_folder(self):
+        return self.data_folder
+    
     def get_weights(self, source_name, target_name):
         pre_id = self.structure_tree.get_id_acronym_map()[source_name]
         post_id = self.structure_tree.get_id_acronym_map()[target_name]
@@ -57,7 +70,8 @@ class VoxelModel():
                 pre_indices.append(i)
             if self.structure_tree.structure_descends_from(self.source_keys[i], post_id):
                 post_indices.append(i)
-
+        print(self.weights.shape, self.nodes.shape)
+        print(source_name, len(pre_indices),target_name, len(post_indices))
         weights_by_target_voxel = []
         for pi in post_indices:
             w = np.dot(self.weights[pre_indices,:], self.nodes[:,pi])
@@ -76,12 +90,12 @@ class VoxelModel():
         return pre_positions
 
     @staticmethod
-    def get_instance(data_folder='data_files/'):
+    def get_instance(ccf_version = None):
         """
         :return: Shared instance of VoxelModel
         """
         if VoxelModel._instance is None:
-            VoxelModel._instance = VoxelModel(data_folder=data_folder)
+            VoxelModel._instance = VoxelModel(ccf_version = ccf_version)
         return VoxelModel._instance
 
 
@@ -103,25 +117,27 @@ class Target():
     be true either, but it allows us to estimate numbers of connections from voxel weights.
     """
 
-    def __init__(self, area, layer, external_in_degree, data_folder='data_files/'):
+    def __init__(self, area, layer, external_in_degree,ccf_version = None,recurrent = False):
         """
         :param area: name of area
         :param layer: name of layer
         :param external_in_degree: Total neurons providing feedforward input to average
             neuron, from other cortical areas.
         """
-        self.data_folder=data_folder
+        
         self.target_area = area
         self.target_name = area + layer
         self.e = external_in_degree
 
-        self.voxel_model = VoxelModel.get_instance(data_folder=data_folder)
-        self.num_voxels = len(self.voxel_model.get_positions(self.target_name))
-
+        self.voxel_model = VoxelModel.get_instance(ccf_version = ccf_version)
+        self.num_voxels = len(self.voxel_model.get_positions(self.target_name))*1000
+        self.data_folder=self.voxel_model.get_data_folder()
+        
         self.gamma = None # scale factor for total inbound voxel weight -> extrinsic in-degree
 
         self.source_names = None # list of possible extrinsic source area / layers
         self.mean_totals = None # mean of total inbound weight across *target* voxels for each source
+        self.recurrent = recurrent
 
     def _set_external_sources(self):
         """
@@ -129,10 +145,10 @@ class Target():
             including only lower areas in the visual hierarchy
         """
         self.source_names = []
-        data = Data(data_folder=self.data_folder)
+        data = Data()
         for area in data.get_areas():
-            if data.get_hierarchical_level(area) < data.get_hierarchical_level(self.target_area):
-                if 'LGN' not in area: #TODO: handle LGN->VISp as special case
+            if 'LGN' not in area: #TODO: handle LGN->VISp as special case
+                if self.recurrent or  (data.get_hierarchical_level(area) < data.get_hierarchical_level(self.target_area)):
                     for layer in data.get_layers():
                         self.source_names.append(area + layer)
 
