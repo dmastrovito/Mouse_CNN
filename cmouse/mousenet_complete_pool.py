@@ -118,6 +118,17 @@ def _reconstruct_area_depth(hierarchical_order):
     return depths
 
 
+def _steps_to_reach_all_connections(layers):
+    n_edges = len(layers) - 1  # excludes input -> LGNd
+    sources = {'LGNd'}
+    for step in range(len(layers) + 1):
+        active = {layer for layer in layers if layer.source_name in sources}
+        if len(active) == n_edges:
+            return step
+        sources = {'LGNd'} | {layer.target_name for layer in active}
+    raise ValueError('Some connections are unreachable from LGNd.')
+
+
 class MouseNetCompletePool(nn.Module):
     """
     torch model constructed by parameters provided in network.
@@ -142,6 +153,8 @@ class MouseNetCompletePool(nn.Module):
             dict(network.area_depth) if hasattr(network, 'area_depth')
             else _reconstruct_area_depth(network.hierarchical_order)
         )
+        if recurrent:
+            self.min_steps = _steps_to_reach_all_connections(network.layers)
 
         for layer in network.layers:
             params = layer.params
@@ -187,6 +200,8 @@ class MouseNetCompletePool(nn.Module):
                      
     
     def get_img_feature_recurrent(self, x, area_list, flatten=True,n_steps = None,return_calc_graph = False):
+        if n_steps is not None and n_steps < self.min_steps:
+            raise ValueError(f'n_steps must be at least {self.min_steps} for activity to reach every connection.')
         nt = self.network.hierarchy_depth
         calc_graph = {}
         #size_mismatch = []
@@ -212,9 +227,8 @@ class MouseNetCompletePool(nn.Module):
         while len(source_areas) >0 and not finished:
             #print(nt)
             target_layers = [layer for layer in self.network.layers if layer.source_name in source_areas]
-            target_layers = list(set(target_layers))
-            targets = [layer.target_name for layer in target_layers]
-            targets = list(set(targets))
+            target_layers = sorted(set(target_layers), key=lambda layer: (layer.source_name, layer.target_name))
+            targets = sorted({layer.target_name for layer in target_layers})
             if n_steps is  None:
                 if len(target_layers) == len(self.network.layers) - 1:
                     finished = True
@@ -223,44 +237,23 @@ class MouseNetCompletePool(nn.Module):
                     finished = True
               
             
+            # Every edge reads last step's states, so the result does not depend on edge order.
+            prev = dict(calc_graph)
+            updates = {}
             for layer in target_layers:
                 layer_name = layer.source_name + layer.target_name
-                convolution = self.Convs[layer_name](calc_graph[layer.source_name])
-                if layer.target_name not in calc_graph:
-                    calc_graph[layer.target_name] = convolution
-                    ncalc += 1
-                    #ec.append(layer_name)
-                #elif layer.out_size != convolution.shape[2]:
-                #    pad = nn.ConstantPad2d(int((layer.out_size-calc_graph[layer.source_name].shape[2])/2),0)
-                #    calc_graph[layer.target_name] = calc_graph[layer.target_name] + self.Convs[layer_name](pad(calc_graph[layer.source_name]))
-                    
+                convolution = self.Convs[layer_name](prev[layer.source_name])
+                target_state = prev.get(layer.target_name)
+                if target_state is None or self.area_depth[layer.target_name] >= self.area_depth[layer.source_name]:
+                    delta = convolution
                 else:
-                      # Compare by (anatomical_level, cortical_layer_rank) tuple so same-depth
-                      # peers are treated consistently (both additive) regardless of their
-                      # arbitrary within-tie-group ordering in hierarchical_order.
-                      tgt_depth = self.area_depth[layer.target_name]
-                      src_depth = self.area_depth[layer.source_name]
-                      if tgt_depth >= src_depth:
-                          calc_graph[layer.target_name] = relu(calc_graph[layer.target_name] + convolution)
-                          ncalc += 1
-                          #ec.append(layer_name)
-                      else:
-                          calc_graph[layer.target_name] =  relu(calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution))
-                          #calc_graph[layer.target_name] =  torch.nn.functional.max_pool2d(calc_graph[layer.target_name] + ( calc_graph[layer.target_name] * convolution) ,5,padding=2,stride =1)
-                          ncalc += 1
-            '''
-            if finished:
-                for target in targets:
-                    calc_graph[target] = torch.nn.Sigmoid()(self.BNs[target](calc_graph[target]))
-            else:
-            '''
-            for target in targets:
-                #calc_graph[target] = torch.nn.Sigmoid()(calc_graph[target])+ .01
-                calc_graph[target] = torch.maximum(torch.tanh(calc_graph[target]),torch.zeros_like(calc_graph[target]))
-                    #means = torch.mean(calc_graph[target],dim = 0, keepdim = True)
-                    #stds = torch.std(calc_graph[target],dim = 0, keepdim = True)
-                    #calc_graph[target] = nn.ReLU(inplace=True)((calc_graph[target] - means)/stds)
-                    
+                    delta = target_state * convolution
+                updates[layer.target_name] = updates.get(layer.target_name, 0) + delta
+                ncalc += 1
+            for target, delta in updates.items():
+                state = delta if target not in prev else prev[target] + delta
+                calc_graph[target] = torch.maximum(torch.tanh(state), torch.zeros_like(state))
+
             #target_layers = [layer for layer in self.network.layers if layer.source_name in targets]
             source_areas = input_areas.copy()
             source_areas.extend(targets)

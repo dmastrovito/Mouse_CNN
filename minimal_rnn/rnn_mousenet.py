@@ -51,7 +51,7 @@ CONNECTIVITY = {  # region: (input_regions, num_channels, resolution)
     'VISl4': (['VISp4', 'VISp23', 'VISp5', 'VISl23', 'VISpor4'], 60, 8),
     'VISl23': (['VISl4', 'VISl5', 'VISpor4'], 87, 8),
     'VISl5': (['VISl23', 'VISpor4'], 81, 8),
-    'VISpor4': (REGIONS[1:-1], 23, 8),
+    'VISpor4': ([r for r in REGIONS[1:-1] if r != 'VISpor4'], 23, 8),
     'VISpor23': (['VISpor4', 'VISpor5'], 119, 4),
     'VISpor5': (['VISpor23'], 118, 2),
 }
