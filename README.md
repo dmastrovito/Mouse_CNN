@@ -33,7 +33,7 @@ pip install -r requirements.txt
   import network
   from mousenet_complete_pool import MouseNetCompletePool
   net = network.load_network_from_pickle(
-      'network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl'
+      'mousenet_recurrent_64x64.pkl'
   )
   model = MouseNetCompletePool(net, recurrent=True)
   ```

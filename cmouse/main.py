@@ -158,7 +158,7 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
 
     if NET == 1:
-        net_name = '../network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl'
+        net_name = '../mousenet_recurrent_64x64.pkl'
         net = network.load_network_from_pickle(net_name)
         #net_name = 'network_complete_updated_number(%s,%s,%s)'%(INPUT_SIZE[0],INPUT_SIZE[1],INPUT_SIZE[2])
         #architecture = Architecture(data_folder=DATA_DIR)

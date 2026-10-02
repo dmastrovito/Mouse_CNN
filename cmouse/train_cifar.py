@@ -276,9 +276,9 @@ def main():
     
     
     if recurrent:
-        net = network.load_network_from_pickle('../network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl')
+        net = network.load_network_from_pickle('../mousenet_recurrent_64x64.pkl')
     else:
-        net = network.load_network_from_pickle('../network_complete_updated_number(3,64,64).pkl')
+        net = network.load_network_from_pickle('../mousenet_feedforward_64x64.pkl')
     mousenet = MouseNetCompletePool(net, recurrent = recurrent)
     
     mousenet.to(device)    

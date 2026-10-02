@@ -13,8 +13,8 @@ from mousenet_complete_pool import MouseNetCompletePool
 
 
 PICKLES = {
-    "feedforward": "network_complete_updated_number(3,64,64).pkl",
-    "recurrent": "network_complete_updated_number(3,64,64)_edited_sigma_recurrent.pkl",
+    "feedforward": "mousenet_feedforward_64x64.pkl",
+    "recurrent": "mousenet_recurrent_64x64.pkl",
 }
 
 
