@@ -1,0 +1,6 @@
+__pycache__/
+.venv/
+data/
+results/
+ccf_2017/
+connectivity/
